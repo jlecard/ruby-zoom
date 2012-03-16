@@ -17,38 +17,34 @@
  */
 
 #include "rbzoom.h"
-
+#include <pthread.h>
+#include <ctype.h>
 #ifdef MAKING_RDOC_HAPPY
 mZoom = rb_define_module("ZOOM");
 #endif
 
-
 /* Document-class: ZOOM::Connection
  * The Connection object is a session with a target.
  */
+static void search_thread(void* search_object);
 static VALUE cZoomConnection;
+struct search_params {
+	VALUE connection;
+	char* search_criteria;
+};
 
-
-static VALUE
-rbz_connection_make (ZOOM_connection connection)
-{
-    return connection != NULL
-        ? Data_Wrap_Struct (cZoomConnection,
-                            NULL,
-                            ZOOM_connection_destroy,
-                            connection)
-        : Qnil;
+static VALUE rbz_connection_make(ZOOM_connection connection) {
+	return connection != NULL ? Data_Wrap_Struct(cZoomConnection, NULL,
+			ZOOM_connection_destroy, connection) : Qnil;
 }
 
-static ZOOM_connection
-rbz_connection_get (VALUE obj)
-{
-    ZOOM_connection connection;
-        
-    Data_Get_Struct (obj, struct ZOOM_connection_p, connection);
-    assert (connection != NULL);
+static ZOOM_connection rbz_connection_get(VALUE obj) {
+	ZOOM_connection connection;
 
-    return connection;
+	Data_Get_Struct (obj, struct ZOOM_connection_p, connection);
+	assert(connection != NULL);
+
+	return connection;
 }
 
 #define RAISE_IF_FAILED(connection)                     \
@@ -66,14 +62,12 @@ rbz_connection_get (VALUE obj)
     }                                                   \
     while (0)
 
-void rbz_connection_check(VALUE obj)
-{
+void rbz_connection_check(VALUE obj) {
 	ZOOM_connection connection;
-	
-	connection = rbz_connection_get(obj);
-  	RAISE_IF_FAILED (connection);
-}
 
+	connection = rbz_connection_get(obj);
+	RAISE_IF_FAILED (connection);
+}
 
 /*
  * call-seq: 
@@ -94,26 +88,24 @@ void rbz_connection_check(VALUE obj)
  *
  * Returns: a newly created ZOOM::Connection object.
  */
-static VALUE
-rbz_connection_open (int argc, VALUE *argv, VALUE self)
-{
-    VALUE host;
-    VALUE port;
-    ZOOM_connection connection;
-    VALUE rb_connection;
-    
-    rb_scan_args (argc, argv, "11", &host, &port);
+static VALUE rbz_connection_open(int argc, VALUE *argv, VALUE self) {
+	VALUE host;
+	VALUE port;
+	ZOOM_connection connection;
+	VALUE rb_connection;
 
-    connection = ZOOM_connection_new (RVAL2CSTR (host),
-                                      NIL_P (port) ? 0 : FIX2INT (port));
-    RAISE_IF_FAILED (connection);
-    
-    rb_connection = rbz_connection_make (connection);
-    if (rb_block_given_p ()) {
-        rb_yield(rb_connection);
-        return Qnil;
-    }
-    return rb_connection;
+	rb_scan_args(argc, argv, "11", &host, &port);
+
+	connection = ZOOM_connection_new(RVAL2CSTR (host),
+			NIL_P(port) ? 0 : FIX2INT(port));
+	RAISE_IF_FAILED (connection);
+
+	rb_connection = rbz_connection_make(connection);
+	if (rb_block_given_p()) {
+		rb_yield(rb_connection);
+		return Qnil;
+	}
+	return rb_connection;
 }
 
 /*
@@ -127,25 +119,23 @@ rbz_connection_open (int argc, VALUE *argv, VALUE self)
  * 
  * Returns: a newly created ZOOM::Connection object.
  */
-static VALUE
-rbz_connection_new (int argc, VALUE *argv, VALUE self)
-{
-    ZOOM_options options;
-    ZOOM_connection connection;
-    VALUE rb_options;
-    
-    rb_scan_args (argc, argv, "01", &rb_options);
+static VALUE rbz_connection_new(int argc, VALUE *argv, VALUE self) {
+	ZOOM_options options;
+	ZOOM_connection connection;
+	VALUE rb_options;
 
-    if (NIL_P (rb_options))
-        options = ZOOM_options_create ();
-    else
-        options = ruby_hash_to_zoom_options (rb_options);
+	rb_scan_args(argc, argv, "01", &rb_options);
 
-    connection = ZOOM_connection_create (options);
-    ZOOM_options_destroy (options);
-    RAISE_IF_FAILED (connection);
+	if (NIL_P(rb_options))
+		options = ZOOM_options_create();
+	else
+		options = ruby_hash_to_zoom_options(rb_options);
 
-    return rbz_connection_make (connection);
+	connection = ZOOM_connection_create(options);
+	ZOOM_options_destroy(options);
+	RAISE_IF_FAILED (connection);
+
+	return rbz_connection_make(connection);
 }
 
 /*
@@ -169,22 +159,19 @@ rbz_connection_new (int argc, VALUE *argv, VALUE self)
  *
  * Returns: self.
  */
-static VALUE
-rbz_connection_connect (int argc, VALUE *argv, VALUE self)
-{
-    ZOOM_connection connection;
-    VALUE host;
-    VALUE port;
-    
-    rb_scan_args (argc, argv, "11", &host, &port);
-  
-    connection = rbz_connection_get (self);
-    ZOOM_connection_connect (connection, 
-                             RVAL2CSTR (host), 
-                             NIL_P (port) ? 0 : FIX2INT (port));
-    RAISE_IF_FAILED (connection); 
+static VALUE rbz_connection_connect(int argc, VALUE *argv, VALUE self) {
+	ZOOM_connection connection;
+	VALUE host;
+	VALUE port;
 
-    return self;
+	rb_scan_args(argc, argv, "11", &host, &port);
+
+	connection = rbz_connection_get(self);
+	ZOOM_connection_connect(connection, RVAL2CSTR (host),
+			NIL_P(port) ? 0 : FIX2INT(port));
+	RAISE_IF_FAILED (connection);
+
+	return self;
 }
 
 /*
@@ -199,18 +186,15 @@ rbz_connection_connect (int argc, VALUE *argv, VALUE self)
  * 
  * Returns: self.
  */
-static VALUE
-rbz_connection_set_option (VALUE self, VALUE key, VALUE val)
-{
-    ZOOM_connection connection;
-    
-    connection = rbz_connection_get (self);
-    ZOOM_connection_option_set (connection,
-                                RVAL2CSTR (key),
-                                RVAL2CSTR (rb_obj_as_string (val)));
-    RAISE_IF_FAILED (connection); 
-    
-    return self;
+static VALUE rbz_connection_set_option(VALUE self, VALUE key, VALUE val) {
+	ZOOM_connection connection;
+
+	connection = rbz_connection_get(self);
+	ZOOM_connection_option_set(connection, RVAL2CSTR (key),
+			RVAL2CSTR (rb_obj_as_string (val)));
+	RAISE_IF_FAILED (connection);
+
+	return self;
 }
 
 /*
@@ -223,17 +207,14 @@ rbz_connection_set_option (VALUE self, VALUE key, VALUE val)
  * 
  * Returns: the value of the given option, as a string, integer or boolean.
  */
-static VALUE
-rbz_connection_get_option (VALUE self, VALUE key)
-{
-    ZOOM_connection connection;
-    const char *value;
- 
-    connection = rbz_connection_get (self);
-    value = ZOOM_connection_option_get (connection,
-                                        RVAL2CSTR (key));
+static VALUE rbz_connection_get_option(VALUE self, VALUE key) {
+	ZOOM_connection connection;
+	const char *value;
 
-    return zoom_option_value_to_ruby_value (value);
+	connection = rbz_connection_get(self);
+	value = ZOOM_connection_option_get(connection, RVAL2CSTR (key));
+
+	return zoom_option_value_to_ruby_value(value);
 }
 
 /*
@@ -252,25 +233,22 @@ rbz_connection_get_option (VALUE self, VALUE key)
  * Returns: a result set from the search, as a ZOOM::ResultSet object,
  * empty if no results were found.
  */
-static VALUE
-rbz_connection_search (VALUE self, VALUE criterion)
-{
-    ZOOM_connection connection;
-    ZOOM_resultset resultset;
+static VALUE rbz_connection_search(VALUE self, VALUE criterion) {
+	ZOOM_connection connection;
+	ZOOM_resultset resultset;
 
-    connection = rbz_connection_get (self);
-    if (TYPE (criterion) == T_STRING)
-        resultset = ZOOM_connection_search_pqf (connection,
-                                                RVAL2CSTR (criterion));
-    else
-        resultset = ZOOM_connection_search (connection,
-                                            rbz_query_get (criterion));
-    RAISE_IF_FAILED (connection); 
-    assert (resultset != NULL);
-  
-    return rbz_resultset_make (resultset);
+	connection = rbz_connection_get(self);
+	if (TYPE(criterion) == T_STRING)
+		resultset = ZOOM_connection_search_pqf(connection,
+				RVAL2CSTR (criterion));
+	else
+		resultset
+				= ZOOM_connection_search(connection, rbz_query_get(criterion));
+	RAISE_IF_FAILED (connection);
+	assert(resultset != NULL);
+
+	return rbz_resultset_make(resultset);
 }
-
 
 /*
  * Constructs a new extended services ZOOM::Package using this connections host information.
@@ -280,65 +258,100 @@ rbz_connection_search (VALUE self, VALUE criterion)
  * 
  * Returns: a new ZOOM::Package object.
  */
-static VALUE
-rbz_connection_package(VALUE self)
-{
-  ZOOM_connection connection;
-  ZOOM_options options;
-  VALUE package;
+static VALUE rbz_connection_package(VALUE self) {
+	ZOOM_connection connection;
+	ZOOM_options options;
+	VALUE package;
 
-  connection = rbz_connection_get (self);
-  options = ZOOM_options_create ();
-  package = rbz_package_make(connection, options);
-  return package;
+	connection = rbz_connection_get(self);
+	options = ZOOM_options_create();
+	package = rbz_package_make(connection, options);
+	return package;
 }
 
+static VALUE
+rbz_connection_multi_search(int argc, VALUE *argv, VALUE self) {
+	VALUE connections;
+	VALUE criteria;
+	int i;
+	int len = RARRAY_LEN(connections);
+	ZOOM_connection connection[len];
+	pthread_t threads[len];
+	rb_scan_args(argc, argv, "20", &connections, &criteria);
+	for (i = 0; i < len; i++) {
+		connection[i] = rbz_connection_get(RARRAY_PTR(connections)[i]);
+		assert(connection[i] != NULL);
+		struct search_params params;
+		params.connection = connection[i];
+		params.search_criteria = RVAL2CSTR(criteria);
+		int rc = pthread_create(&threads[i], NULL, search_thread, &params);
+	}
+	for (i=0; i< len; i++) {
+		int rc = pthread_join(&threads[i], NULL);
+	}
 
-void
-Init_zoom_connection (VALUE mZoom)
-{
-    VALUE c;
+}
 
-    c = rb_define_class_under (mZoom, "Connection", rb_cObject); 
-    rb_define_singleton_method (c, "open", rbz_connection_open, -1);
-    rb_define_singleton_method (c, "new", rbz_connection_new, -1);
-    rb_define_method (c, "connect", rbz_connection_connect, -1);
-    rb_define_method (c, "set_option", rbz_connection_set_option, 2);
-    rb_define_method (c, "get_option", rbz_connection_get_option, 1);
-    rb_define_method (c, "package", rbz_connection_package, 0);
+static void search_thread(void* search_object) {
+	struct search_params *params;
+	params = (struct search_params*) search_object;
+	ZOOM_resultset resultset;
 
-    define_zoom_option (c, "implementationName");
-    define_zoom_option (c, "user");
-    define_zoom_option (c, "group");
-    define_zoom_option (c, "password");
-    define_zoom_option (c, "host");
-    define_zoom_option (c, "proxy");
-    define_zoom_option (c, "async");
-    define_zoom_option (c, "maximumRecordSize");
-    define_zoom_option (c, "preferredMessageSize");
-    define_zoom_option (c, "lang");
-    define_zoom_option (c, "charset");
-    define_zoom_option (c, "serverImplementationId");
-    define_zoom_option (c, "targetImplementationName");
-    define_zoom_option (c, "serverImplementationVersion");
-    define_zoom_option (c, "databaseName");
-    define_zoom_option (c, "piggyback");
-    define_zoom_option (c, "smallSetUpperBound");
-    define_zoom_option (c, "largeSetLowerBound");
-    define_zoom_option (c, "mediumSetPresentNumber");
-    define_zoom_option (c, "smallSetElementSetName");
-    define_zoom_option (c, "mediumSetElementSetName");
+	resultset = ZOOM_connection_search_pqf(params->connection, params->search_criteria);
 
-    /* herited from Zoom::ResultSet */
-    define_zoom_option (c, "start");
-    define_zoom_option (c, "count");
-    define_zoom_option (c, "presentChunk");
-    define_zoom_option (c, "elementSetName");
-    define_zoom_option (c, "preferredRecordSyntax");
-    define_zoom_option (c, "schema");
-    define_zoom_option (c, "setname");
-    
-    rb_define_method (c, "search", rbz_connection_search, 1);
-    
-    cZoomConnection = c;
+	//	resultset
+	//			= ZOOM_connection_search(connection, rbz_query_get(criteria));
+	RAISE_IF_FAILED (params->connection);
+	assert(resultset != NULL);
+
+	rbz_resultset_make(resultset);
+}
+
+void Init_zoom_connection(VALUE mZoom) {
+
+	VALUE c;
+
+	c = rb_define_class_under(mZoom, "Connection", rb_cObject);
+	rb_define_singleton_method(c, "open", rbz_connection_open, -1);
+	rb_define_singleton_method(c, "new", rbz_connection_new, -1);
+	rb_define_method(c, "connect", rbz_connection_connect, -1);
+	rb_define_method(c, "set_option", rbz_connection_set_option, 2);
+	rb_define_method(c, "get_option", rbz_connection_get_option, 1);
+	rb_define_method(c, "package", rbz_connection_package, 0);
+
+	define_zoom_option(c, "implementationName");
+	define_zoom_option(c, "user");
+	define_zoom_option(c, "group");
+	define_zoom_option(c, "password");
+	define_zoom_option(c, "host");
+	define_zoom_option(c, "proxy");
+	define_zoom_option(c, "async");
+	define_zoom_option(c, "maximumRecordSize");
+	define_zoom_option(c, "preferredMessageSize");
+	define_zoom_option(c, "lang");
+	define_zoom_option(c, "charset");
+	define_zoom_option(c, "serverImplementationId");
+	define_zoom_option(c, "targetImplementationName");
+	define_zoom_option(c, "serverImplementationVersion");
+	define_zoom_option(c, "databaseName");
+	define_zoom_option(c, "piggyback");
+	define_zoom_option(c, "smallSetUpperBound");
+	define_zoom_option(c, "largeSetLowerBound");
+	define_zoom_option(c, "mediumSetPresentNumber");
+	define_zoom_option(c, "smallSetElementSetName");
+	define_zoom_option(c, "mediumSetElementSetName");
+
+	/* herited from Zoom::ResultSet */
+	define_zoom_option(c, "start");
+	define_zoom_option(c, "count");
+	define_zoom_option(c, "presentChunk");
+	define_zoom_option(c, "elementSetName");
+	define_zoom_option(c, "preferredRecordSyntax");
+	define_zoom_option(c, "schema");
+	define_zoom_option(c, "setname");
+
+	rb_define_method(c, "search", rbz_connection_search, 1);
+	rb_define_method(c, "multisearch", rbz_connection_multi_search, 2);
+
+	cZoomConnection = c;
 }

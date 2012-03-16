@@ -52,6 +52,7 @@ VALUE rbz_package_make (ZOOM_connection connection, ZOOM_options options);
 void rbz_connection_check(VALUE obj); 
         
 /* useful macros */
+
 #if !defined (RVAL2CSTR)
 # define RVAL2CSTR(x)       (NIL_P (x) ? NULL : RSTRING_PTR(x))
 #endif
@@ -65,4 +66,6 @@ void rbz_connection_check(VALUE obj);
 # define CBOOL2RVAL(x)      (x ? Qtrue : Qfalse)
 #endif
 
+
 #endif /* __RBZOOM_H_ */
+
